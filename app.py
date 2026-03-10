@@ -1,0 +1,96 @@
+import os
+import httpx
+import time
+from datetime import datetime
+import pytz
+from bs4 import BeautifulSoup
+from flask import Flask
+import threading
+
+app = Flask(__name__)
+
+TOKEN = os.environ.get("TOKEN")
+VN_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
+ID_FILE = "subscribers.txt"
+
+def save_id(chat_id):
+    chat_id = str(chat_id)
+    if not os.path.exists(ID_FILE):
+        open(ID_FILE, "w").close()
+    with open(ID_FILE, "r") as f:
+        ids = f.read().splitlines()
+    if chat_id not in ids:
+        with open(ID_FILE, "a") as f:
+            f.write(chat_id + "\n")
+        return True
+    return False
+
+def get_all_ids():
+    if not os.path.exists(ID_FILE): return []
+    with open(ID_FILE, "r") as f:
+        return f.read().splitlines()
+
+def broadcast_message(text):
+    ids = get_all_ids()
+    if not TOKEN: return
+    for cid in ids:
+        url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+        try:
+            httpx.post(url, json={"chat_id": cid, "text": text}, timeout=5.0)
+            time.sleep(0.1)
+        except:
+            continue
+
+def telegram_updater():
+    offset = 0
+    if not TOKEN: return
+    while True:
+        try:
+            url = f"https://api.telegram.org/bot{TOKEN}/getUpdates?offset={offset}&timeout=30"
+            res = httpx.get(url, timeout=35.0).json()
+            if res.get("ok"):
+                for up in res.get("result", []):
+                    offset = up["update_id"] + 1
+                    if "message" in up:
+                        save_id(up["message"]["chat"]["id"])
+        except:
+            time.sleep(5)
+
+def scanner_logic():
+    scanned = set()
+    while True:
+        now = datetime.now(VN_TZ)
+        m, d = now.strftime("%m"), now.strftime("%d")
+        base = "https://telegra.ph/NH%E1%BA%ACN-XU-BOT-DVK-"
+        stt = 1
+        while True:
+            if datetime.now(VN_TZ).strftime("%d") != d: break
+            url = f"{base}{m}-{d}-{stt:02d}"
+            try:
+                res = httpx.get(url, timeout=15.0)
+                if res.status_code == 200:
+                    soup = BeautifulSoup(res.text, 'html.parser')
+                    code_tag = soup.find('code')
+                    if code_tag and url not in scanned:
+                        msg = f"🌟 MÃ XU MỚI!\n🔑 Code: {code_tag.text}\n🔗 {url}"
+                        broadcast_message(msg)
+                        scanned.add(url)
+                    stt += 1
+                else:
+                    time.sleep(30)
+                    continue
+            except:
+                time.sleep(10)
+
+@app.route('/health')
+def health():
+    return {"status": "running", "subs": len(get_all_ids())}, 200
+
+@app.route('/')
+def home():
+    return "OK", 200
+
+if __name__ == "__main__":
+    threading.Thread(target=telegram_updater, daemon=True).start()
+    threading.Thread(target=scanner_logic, daemon=True).start()
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
