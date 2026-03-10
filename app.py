@@ -5,37 +5,23 @@ from flask import Flask
 
 app = Flask(__name__)
 TOKEN = os.environ.get("TOKEN")
-ID_FILE = "subscribers.txt"
 
-def save_id(chat_id):
-    chat_id = str(chat_id)
-    if not os.path.exists(ID_FILE): open(ID_FILE, "w").close()
-    with open(ID_FILE, "r") as f: ids = f.read().splitlines()
-    if chat_id not in ids:
-        with open(ID_FILE, "a") as f: f.write(chat_id + "\n")
-
-def get_all_ids():
-    if not os.path.exists(ID_FILE): return []
-    with open(ID_FILE, "r") as f: return f.read().splitlines()
+# Lấy ID cố định từ biến môi trường, ví dụ: "12345678,98765432"
+def get_fixed_ids():
+    ids_str = os.environ.get("ADMIN_IDS", "")
+    if not ids_str:
+        return []
+    return [i.strip() for i in ids_str.split(",") if i.strip()]
 
 def broadcast(text):
     if not TOKEN: return
-    for cid in get_all_ids():
+    ids = get_fixed_ids()
+    for cid in ids:
         try:
-            httpx.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", json={"chat_id": cid, "text": text}, timeout=5.0)
+            httpx.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
+                       json={"chat_id": cid, "text": text}, timeout=5.0)
             time.sleep(0.1)
         except: continue
-
-def updater():
-    offset = 0
-    while True:
-        try:
-            res = httpx.get(f"https://api.telegram.org/bot{TOKEN}/getUpdates?offset={offset}&timeout=30", timeout=35.0).json()
-            if res.get("ok"):
-                for up in res.get("result", []):
-                    offset = up["update_id"] + 1
-                    if "message" in up: save_id(up["message"]["chat"]["id"])
-        except: time.sleep(5)
 
 def scanner():
     scanned = set()
@@ -49,7 +35,8 @@ def scanner():
             try:
                 res = httpx.get(url, timeout=15.0)
                 if res.status_code == 200:
-                    code_tag = BeautifulSoup(res.text, 'html.parser').find('code')
+                    soup = BeautifulSoup(res.text, 'html.parser')
+                    code_tag = soup.find('code')
                     if code_tag and url not in scanned:
                         broadcast(f"🌟 MÃ XU MỚI!\n🔑 Code: {code_tag.text}\n🔗 {url}")
                         scanned.add(url)
@@ -57,15 +44,17 @@ def scanner():
                 else:
                     time.sleep(25)
                     continue
-            except: time.sleep(10)
+            except:
+                time.sleep(10)
 
 @app.route('/health')
-def health(): return {"status": "alive"}, 200
+def health():
+    return {"status": "alive", "fixed_subs": get_fixed_ids()}, 200
 
 @app.route('/')
-def home(): return "Hunter Active", 200
+def home():
+    return "Hunter Fixed ID Active", 200
 
 if __name__ == "__main__":
-    threading.Thread(target=updater, daemon=True).start()
     threading.Thread(target=scanner, daemon=True).start()
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
