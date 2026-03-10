@@ -1,11 +1,10 @@
-import os, httpx, time, threading, pytz
+import os, httpx, time, threading
 from datetime import datetime
 from bs4 import BeautifulSoup
 from flask import Flask
 
 app = Flask(__name__)
 TOKEN = os.environ.get("TOKEN")
-VN_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
 ID_FILE = "subscribers.txt"
 
 def save_id(chat_id):
@@ -41,11 +40,11 @@ def updater():
 def scanner():
     scanned = set()
     while True:
-        now = datetime.now(VN_TZ)
+        now = datetime.now()
         m, d = now.strftime("%m"), now.strftime("%d")
         stt = 1
         while True:
-            if datetime.now(VN_TZ).strftime("%d") != d: break
+            if datetime.now().strftime("%d") != d: break
             url = f"https://telegra.ph/NH%E1%BA%ACN-XU-BOT-DVK-{m}-{d}-{stt:02d}"
             try:
                 res = httpx.get(url, timeout=15.0)
@@ -56,12 +55,12 @@ def scanner():
                         scanned.add(url)
                     stt += 1
                 else:
-                    time.sleep(30)
+                    time.sleep(25)
                     continue
             except: time.sleep(10)
 
 @app.route('/health')
-def health(): return {"status": "running", "subs": len(get_all_ids())}, 200
+def health(): return {"status": "alive"}, 200
 
 @app.route('/')
 def home(): return "Hunter Active", 200
